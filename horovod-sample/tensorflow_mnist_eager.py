@@ -47,7 +47,6 @@ def main(_):
     )
     dataset = dataset.shuffle(1000).batch(32)
 
-    checkpoint_dir = './checkpoints'
     step_counter = tf.train.get_or_create_global_step()
     checkpoint = tf.train.Checkpoint(model=mnist_model, optimizer=opt,
                                      step_counter=step_counter)
@@ -78,6 +77,7 @@ def main(_):
     # Horovod: save checkpoints only on worker 0 to prevent other workers from
     # corrupting it.
     if hvd.rank() == 0:
+        checkpoint_dir = './checkpoints'
         checkpoint.save(checkpoint_dir)
 
 

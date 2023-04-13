@@ -410,10 +410,7 @@ def train_module():
         hvd.broadcast_parameters(aux_params, root_rank=0)
     mod.set_params(arg_params=arg_params, aux_params=aux_params)
 
-    # Setup validation data and callback during training
-    eval_data = None
-    if args.eval_epoch:
-        eval_data = val_data
+    eval_data = val_data if args.eval_epoch else None
     batch_callback = None
     if args.log_interval > 0 and rank == 0:
         batch_callback = mx.callback.Speedometer(batch_size * num_workers,

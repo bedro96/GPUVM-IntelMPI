@@ -145,9 +145,7 @@ def main(unused_argv):
         try:
             os.mkdir(cache_dir)
         except OSError as e:
-            if e.errno == errno.EEXIST and os.path.isdir(cache_dir):
-                pass
-            else:
+            if e.errno != errno.EEXIST or not os.path.isdir(cache_dir):
                 raise
 
     # Download and load MNIST dataset.

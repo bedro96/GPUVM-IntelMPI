@@ -25,20 +25,12 @@ import pyspark.sql.types as T
 import pyspark.sql.functions as F
 
 # Location of data on local filesystem (prefixed with file://) or on HDFS.
-DATA_LOCATION = 'file://' + os.getcwd()
+DATA_LOCATION = f'file://{os.getcwd()}'
 
 # Location of outputs on local filesystem (without file:// prefix).
 LOCAL_SUBMISSION_CSV = 'submission.csv'
 LOCAL_CHECKPOINT_FILE = 'checkpoint.h5'
 
-# Spark clusters to use for training. If set to None, uses current default cluster.
-#
-# Light processing (data preparation & prediction) uses typical Spark setup of one
-# task per CPU core.
-#
-# Training cluster should be set up to provide a Spark task per multiple CPU cores,
-# or per GPU, e.g. by supplying `-c <NUM GPUs>` in Spark Standalone mode.
-LIGHT_PROCESSING_CLUSTER = None  # or 'spark://hostname:7077'
 TRAINING_CLUSTER = None  # or 'spark://hostname:7077'
 
 # The number of training processes.
@@ -65,18 +57,24 @@ print('================')
 
 # Create Spark session for data preparation.
 conf = SparkConf().setAppName('data_prep').set('spark.sql.shuffle.partitions', '16')
-if LIGHT_PROCESSING_CLUSTER:
+if LIGHT_PROCESSING_CLUSTER := None:
     conf.setMaster(LIGHT_PROCESSING_CLUSTER)
 spark = SparkSession.builder.config(conf=conf).getOrCreate()
 
-train_csv = spark.read.csv('%s/train.csv' % DATA_LOCATION, header=True)
-test_csv = spark.read.csv('%s/test.csv' % DATA_LOCATION, header=True)
+train_csv = spark.read.csv(f'{DATA_LOCATION}/train.csv', header=True)
+test_csv = spark.read.csv(f'{DATA_LOCATION}/test.csv', header=True)
 
-store_csv = spark.read.csv('%s/store.csv' % DATA_LOCATION, header=True)
-store_states_csv = spark.read.csv('%s/store_states.csv' % DATA_LOCATION, header=True)
-state_names_csv = spark.read.csv('%s/state_names.csv' % DATA_LOCATION, header=True)
-google_trend_csv = spark.read.csv('%s/googletrend.csv' % DATA_LOCATION, header=True)
-weather_csv = spark.read.csv('%s/weather.csv' % DATA_LOCATION, header=True)
+store_csv = spark.read.csv(f'{DATA_LOCATION}/store.csv', header=True)
+store_states_csv = spark.read.csv(
+    f'{DATA_LOCATION}/store_states.csv', header=True
+)
+state_names_csv = spark.read.csv(
+    f'{DATA_LOCATION}/state_names.csv', header=True
+)
+google_trend_csv = spark.read.csv(
+    f'{DATA_LOCATION}/googletrend.csv', header=True
+)
+weather_csv = spark.read.csv(f'{DATA_LOCATION}/weather.csv', header=True)
 
 
 def expand_date(df):
@@ -187,10 +185,10 @@ def prepare_df(df):
 
 
 def build_vocabulary(df, cols):
-    vocab = {}
-    for col in cols:
-        vocab[col] = sorted([r[0] for r in df.select(col).distinct().collect()])
-    return vocab
+    return {
+        col: sorted([r[0] for r in df.select(col).distinct().collect()])
+        for col in cols
+    }
 
 
 def cast_columns(df, cols):
@@ -294,9 +292,9 @@ print('Validation: %d' % val_rows)
 print('Test: %d' % test_rows)
 
 # Save data frames as Parquet files.
-train_df.write.parquet('%s/train_df.parquet' % DATA_LOCATION, mode='overwrite')
-val_df.write.parquet('%s/val_df.parquet' % DATA_LOCATION, mode='overwrite')
-test_df.write.parquet('%s/test_df.parquet' % DATA_LOCATION, mode='overwrite')
+train_df.write.parquet(f'{DATA_LOCATION}/train_df.parquet', mode='overwrite')
+val_df.write.parquet(f'{DATA_LOCATION}/val_df.parquet', mode='overwrite')
+test_df.write.parquet(f'{DATA_LOCATION}/test_df.parquet', mode='overwrite')
 
 spark.stop()
 
@@ -354,10 +352,18 @@ K.set_session(tf.Session(config=config))
 
 # Build the model.
 inputs = {col: Input(shape=(1,), name=col) for col in all_cols}
-embeddings = [Embedding(len(vocab[col]), 10, input_length=1, name='emb_' + col)(inputs[col])
-              for col in categorical_cols]
-continuous_bn = Concatenate()([Reshape((1, 1), name='reshape_' + col)(inputs[col])
-                               for col in continuous_cols])
+embeddings = [
+    Embedding(len(vocab[col]), 10, input_length=1, name=f'emb_{col}')(
+        inputs[col]
+    )
+    for col in categorical_cols
+]
+continuous_bn = Concatenate()(
+    [
+        Reshape((1, 1), name=f'reshape_{col}')(inputs[col])
+        for col in continuous_cols
+    ]
+)
 continuous_bn = BatchNormalization()(continuous_bn)
 x = Concatenate()(embeddings + [continuous_bn])
 x = Flatten()(x)
@@ -447,12 +453,8 @@ def train_fn(model_bytes):
                                                             save_best_only=True))
 
     # Make Petastorm readers.
-    with make_batch_reader('%s/train_df.parquet' % DATA_LOCATION, num_epochs=None,
-                           cur_shard=hvd.rank(), shard_count=hvd.size(),
-                           hdfs_driver=PETASTORM_HDFS_DRIVER) as train_reader:
-        with make_batch_reader('%s/val_df.parquet' % DATA_LOCATION, num_epochs=None,
-                               cur_shard=hvd.rank(), shard_count=hvd.size(),
-                               hdfs_driver=PETASTORM_HDFS_DRIVER) as val_reader:
+    with make_batch_reader(f'{DATA_LOCATION}/train_df.parquet', num_epochs=None, cur_shard=hvd.rank(), shard_count=hvd.size(), hdfs_driver=PETASTORM_HDFS_DRIVER) as train_reader:
+        with make_batch_reader(f'{DATA_LOCATION}/val_df.parquet', num_epochs=None, cur_shard=hvd.rank(), shard_count=hvd.size(), hdfs_driver=PETASTORM_HDFS_DRIVER) as val_reader:
             # Convert readers to tf.data.Dataset.
             train_ds = make_petastorm_dataset(train_reader) \
                 .apply(tf.data.experimental.unbatch()) \
@@ -499,7 +501,7 @@ print('Best RMSPE: %f' % best_val_rmspe)
 # Write checkpoint.
 with open(LOCAL_CHECKPOINT_FILE, 'wb') as f:
     f.write(best_model_bytes)
-print('Written checkpoint to %s' % LOCAL_CHECKPOINT_FILE)
+print(f'Written checkpoint to {LOCAL_CHECKPOINT_FILE}')
 
 spark.stop()
 
@@ -547,10 +549,13 @@ def predict_fn(model_bytes):
     return fn
 
 
-pred_df = spark.read.parquet('%s/test_df.parquet' % DATA_LOCATION) \
-    .rdd.mapPartitions(predict_fn(best_model_bytes)).toDF()
+pred_df = (
+    spark.read.parquet(f'{DATA_LOCATION}/test_df.parquet')
+    .rdd.mapPartitions(predict_fn(best_model_bytes))
+    .toDF()
+)
 submission_df = pred_df.select(pred_df.Id.cast(T.IntegerType()), pred_df.Sales).toPandas()
 submission_df.sort_values(by=['Id']).to_csv(LOCAL_SUBMISSION_CSV, index=False)
-print('Saved predictions to %s' % LOCAL_SUBMISSION_CSV)
+print(f'Saved predictions to {LOCAL_SUBMISSION_CSV}')
 
 spark.stop()
